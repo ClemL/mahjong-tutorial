@@ -1,0 +1,17 @@
+/*
+ * The tile, theme and button styles are the mahjong app's own (styles/base,
+ * tiles, themes, appearance, controls, animations, film), copied unchanged so
+ * the tutorial's tiles look exactly like the game's. Everything the tutorial
+ * adds lives after them, so it can override at the same specificity.
+ */
+@import "./styles/base.css";
+@import "./styles/tiles.css";
+@import "./styles/controls.css";
+@import "./styles/animations.css";
+@import "./styles/themes.css";
+@import "./styles/appearance.css";
+@import "./styles/film.css";
+@import "./styles/site.css";
+@import "./styles/lessons.css";
+@import "./styles/table.css";
+@import "./styles/scoring.css";

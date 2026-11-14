@@ -1,0 +1,545 @@
+import { describe, expect, it } from "vitest";
+import {
+  type GameState,
+  answerClaim,
+  claimOptionsFor,
+  claimTurn,
+  createGame,
+  setRounds,
+  discard,
+  endGame,
+  nextHand,
+  resolveClaims,
+  setFlowers,
+  setMinFaan,
+  setMultipleWinners,
+  turnActions,
+} from "../engine";
+import { autoPlayHand } from "../controller";
+import { createRng } from "../rng";
+import { DEFAULT_RULES } from "../rules";
+import { compareCodes, isFlower, rankOf } from "../tiles";
+import type { Seat, Tile } from "../tiles";
+
+function allAiGame(seed: number): GameState {
+  const state = createGame({ seed });
+  for (const p of state.players) p.isHuman = false;
+  return state;
+}
+
+function allTiles(state: GameState): Tile[] {
+  return [
+    ...state.wall,
+    ...state.players.flatMap((p) => [
+      ...p.hand,
+      ...p.melds.flatMap((m) => m.tiles),
+      ...p.flowers,
+      ...p.discards,
+    ]),
+  ];
+}
+
+function expectTileConservation(state: GameState, count = 144): void {
+  const tiles = allTiles(state);
+  expect(tiles).toHaveLength(count);
+  expect(new Set(tiles.map((t) => t.id)).size).toBe(count);
+}
+
+describe("dealing", () => {
+  it("gives each player a legal opening hand", () => {
+    const state = createGame({ seed: 12345 });
+    expectTileConservation(state);
+    for (const p of state.players) {
+      const expected = p.seat === state.dealer ? 14 : 13;
+      expect(p.hand).toHaveLength(expected);
+      expect(p.hand.some((t) => isFlower(t.code))).toBe(false);
+    }
+    expect(state.turn).toBe(state.dealer);
+    expect(state.drawnTileId).not.toBeNull();
+  });
+
+  it("is reproducible from a seed", () => {
+    const a = createGame({ seed: 999 });
+    const b = createGame({ seed: 999 });
+    expect(a.players.map((p) => p.hand.map((t) => t.id))).toEqual(
+      b.players.map((p) => p.hand.map((t) => t.id)),
+    );
+  });
+
+  it("holds bonus tiles aside rather than in hand", () => {
+    for (let seed = 0; seed < 20; seed++) {
+      const state = createGame({ seed });
+      const bonus = state.players.flatMap((p) => p.flowers);
+      expect(bonus.every((t) => isFlower(t.code))).toBe(true);
+      expect(state.players.flatMap((p) => p.hand).some((t) => isFlower(t.code))).toBe(false);
+    }
+  });
+});
+
+describe("claims", () => {
+  it("offers a chow only to the player to the discarder's right", () => {
+    const state = createGame({ seed: 42 });
+    state.players[1].hand = [
+      { id: "x1", code: "m2" },
+      { id: "x2", code: "m3" },
+    ];
+    state.players[2].hand = [
+      { id: "y1", code: "m2" },
+      { id: "y2", code: "m3" },
+    ];
+    const tile: Tile = { id: "z", code: "m1" };
+    const next = claimOptionsFor(state, 1, tile, 0, true);
+    const notNext = claimOptionsFor(state, 2, tile, 0, false);
+    expect(next.map((o) => o.type)).toContain("chow");
+    expect(notNext.map((o) => o.type)).not.toContain("chow");
+  });
+
+  it("offers pung and kong to any seat", () => {
+    const state = createGame({ seed: 42 });
+    state.players[2].hand = [
+      { id: "a", code: "p5" },
+      { id: "b", code: "p5" },
+      { id: "c", code: "p5" },
+    ];
+    const options = claimOptionsFor(state, 2, { id: "z", code: "p5" }, 0, false);
+    expect(options.map((o) => o.type).sort()).toEqual(["kong", "pung"]);
+  });
+
+  it("gives a pung priority over a chow", () => {
+    let state = createGame({ seed: 7 });
+    for (const p of state.players) p.isHuman = false;
+    state.turn = 0;
+    state.phase = "action";
+    state.drawnTileId = null;
+    state.players[0].hand = [{ id: "d1", code: "m4" }];
+    state.players[1].hand = [
+      { id: "c1", code: "m5" },
+      { id: "c2", code: "m6" },
+    ];
+    state.players[2].hand = [
+      { id: "p1", code: "m4" },
+      { id: "p2", code: "m4" },
+    ];
+    state.drawnTileId = "d1";
+    state = discard(state, 0, "d1");
+    expect(state.phase).toBe("claiming");
+    state = resolveClaims(state, [
+      { seat: 1, optionId: "chow:m5-m6" },
+      { seat: 2, optionId: "pung:m4" },
+    ]);
+    expect(state.players[2].melds).toHaveLength(1);
+    expect(state.players[1].melds).toHaveLength(0);
+    expect(state.turn).toBe(2);
+  });
+
+  it("passes the turn along when everyone passes", () => {
+    let state = createGame({ seed: 3 });
+    for (const p of state.players) p.isHuman = false;
+    const tile = state.players[0].hand[0];
+    state = discard(state, 0, tile.id);
+    if (state.phase === "claiming") {
+      state = resolveClaims(
+        state,
+        state.pendingClaims.map((c) => ({ seat: c.seat, optionId: null })),
+      );
+    }
+    expect(state.players[0].discards.map((t) => t.id)).toContain(tile.id);
+    expectTileConservation(state);
+  });
+});
+
+describe("more than one winner on a discard", () => {
+  const tiles = (prefix: string, spec: string): Tile[] =>
+    spec.split(" ").map((code, i) => ({ id: `${prefix}${i}`, code }));
+
+  /** East throws 5 Characters, which South and West are both waiting on. */
+  function bothWaiting(multipleWinners: boolean): GameState {
+    let state = createGame({ seed: 7, config: { ...DEFAULT_RULES, multipleWinners } });
+    for (const p of state.players) {
+      p.isHuman = false;
+      p.flowers = [];
+      p.melds = [];
+    }
+    state.turn = 0;
+    state.phase = "action";
+    state.players[0].hand = tiles("e", "m5 p9 s9");
+    state.players[1].hand = tiles("s", "m1 m2 m3 m4 m6 p1 p2 p3 s1 s2 s3 dr dr");
+    state.players[2].hand = tiles("w", "m3 m4 p4 p5 p6 s4 s5 s6 wn wn wn dg dg");
+    state.players[3].hand = tiles("n", "p1 p9 s1 s9 we ws ww dr dg dw m1 m9 p5");
+    state.drawnTileId = "e0";
+    state = discard(state, 0, "e0");
+    expect(state.phase).toBe("claiming");
+    return state;
+  }
+
+  it("lets only the first after the discarder win, by default", () => {
+    let state = bothWaiting(false);
+    // The win on offer carries what it would score, for the claimant to see before taking it.
+    const offered = claimTurn(state)!.options.find((o) => o.type === "win")!;
+    expect(offered.score?.faan).toBeGreaterThan(0);
+    expect(claimTurn(state)?.seat).toBe(1);
+    state = answerClaim(state, 1, "win");
+    expect(state.phase).toBe("handOver");
+    expect(state.result?.winner).toBe(1);
+    expect(state.result?.score).toEqual(offered.score);
+    expect(state.result?.others).toBeUndefined();
+  });
+
+  it("asks everyone who can win, and pays every winner, at a table that plays it", () => {
+    let state = bothWaiting(true);
+    state = answerClaim(state, 1, "win");
+    // South has declared; West is still asked, and only to win.
+    expect(state.phase).toBe("claiming");
+    expect(claimTurn(state)).toMatchObject({ seat: 2, options: [{ type: "win" }] });
+    state = answerClaim(state, 2, "win");
+
+    expect(state.phase).toBe("handOver");
+    const result = state.result!;
+    expect(result.winner).toBe(1);
+    expect(result.others?.map((o) => o.winner)).toEqual([2]);
+    const south = result.score!.value;
+    const west = result.others![0].score.value;
+    // East pays both in full; North, who neither threw it nor won, pays half of each.
+    expect(result.payments).toEqual([
+      -(south + west),
+      south + Math.ceil(south / 2),
+      west + Math.ceil(west / 2),
+      -(Math.ceil(south / 2) + Math.ceil(west / 2)),
+    ]);
+    expect(state.scores.reduce((a, b) => a + b, 0)).toBe(0);
+    // The tile is South's, the first after the discarder; West won on it all the same.
+    expect(state.players[1].hand.some((t) => t.id === "e0")).toBe(true);
+    expect(state.players[2].hand.some((t) => t.id === "e0")).toBe(false);
+    expect(state.players[0].discards.some((t) => t.id === "e0")).toBe(false);
+    expect(state.history.at(-1)?.alsoWon).toEqual([{ winner: 2, faan: result.others![0].score.faan, value: west }]);
+  });
+
+  it("pays only the one who declares when another lets it go", () => {
+    let state = bothWaiting(true);
+    state = answerClaim(state, 1, null);
+    expect(claimTurn(state)?.seat).toBe(2);
+    state = answerClaim(state, 2, "win");
+    expect(state.result?.winner).toBe(2);
+    expect(state.result?.others).toBeUndefined();
+
+    let declined = bothWaiting(true);
+    declined = answerClaim(declined, 1, "win");
+    declined = answerClaim(declined, 2, null);
+    expect(declined.result?.winner).toBe(1);
+    expect(declined.result?.others).toBeUndefined();
+  });
+
+  it("keeps a declared win when the table turns the rule off before the others answer", () => {
+    let state = bothWaiting(true);
+    state = answerClaim(state, 1, "win");
+    state = setMultipleWinners(state, false);
+    state = answerClaim(state, 2, null);
+    expect(state.phase).toBe("handOver");
+    expect(state.result?.winner).toBe(1);
+  });
+
+  it("keeps every rule over full hands at a table that pays every winner", () => {
+    for (let seed = 0; seed < 30; seed++) {
+      const state = createGame({ seed: seed * 101 + 5, config: { ...DEFAULT_RULES, multipleWinners: true } });
+      for (const p of state.players) p.isHuman = false;
+      const { state: end } = autoPlayHand(state, createRng(seed));
+      expect(end.phase).toBe("handOver");
+      expectTileConservation(end);
+      expect(end.scores.reduce((a, b) => a + b, 0)).toBe(0);
+    }
+  }, 120000);
+});
+
+describe("turn actions", () => {
+  it("offers a concealed kong when four identical tiles are held", () => {
+    const state = createGame({ seed: 11 });
+    const seat = state.dealer;
+    state.players[seat].hand = [
+      { id: "k1", code: "s3" },
+      { id: "k2", code: "s3" },
+      { id: "k3", code: "s3" },
+      { id: "k4", code: "s3" },
+    ];
+    state.drawnTileId = "k4";
+    const actions = turnActions(state, seat);
+    expect(actions.kongs).toEqual([{ kind: "concealed", code: "s3", tileIds: ["k1", "k2", "k3", "k4"] }]);
+  });
+
+  it("refuses a second discard before the turn has passed on", () => {
+    let state = createGame({ seed: 21 });
+    for (const p of state.players) p.isHuman = false;
+    const seat = state.dealer;
+    const first = state.players[seat].hand[0];
+    const second = state.players[seat].hand[1];
+    state = discard(state, seat, first.id);
+    // Everyone passes is not resolved yet, so the seat must not act again.
+    expect(turnActions(state, seat).canDiscard).toBe(false);
+    const after = discard(state, seat, second.id);
+    expect(after.players[seat].discards).toHaveLength(1);
+    expect(after.players[seat].hand.map((t) => t.id)).toContain(second.id);
+  });
+
+  it("does not allow a win below the faan minimum", () => {
+    const state = createGame({ seed: 11, config: { ...DEFAULT_RULES, minFaan: 3 } });
+    const seat = state.dealer;
+    // A complete but valueless hand: chows across three suits with a plain pair,
+    // exposed, so neither the concealed-hand nor self-draw bonus applies.
+    state.players[seat].hand = "m1 m2 m3 p4 p5 p6 s7 s8 s9 m5 m6 m7 p2 p2"
+      .split(" ")
+      .map((code, i) => ({ id: `h${i}`, code }));
+    state.players[seat].flowers = [{ id: "f", code: "f2" }];
+    state.drawnTileId = "h13";
+    state.players[seat].melds = [];
+    // A discard already down: a hand under way, not the dealer's 天糊 on the deal.
+    state.players[(seat + 1) % 4].discards = [{ id: "d", code: "s1" }];
+    const actions = turnActions(state, seat);
+    // All sequences (1) + self draw (1) = 2 faan, below the 3 faan minimum.
+    expect(actions.canWin).toBe(false);
+  });
+
+  it("allows a chicken hand when the table minimum is 0", () => {
+    const state = createGame({ seed: 11, config: { ...DEFAULT_RULES, minFaan: 0 } });
+    const seat = state.dealer;
+    state.players[seat].hand = "m1 m2 m3 p4 p5 p6 s7 s8 s9 m5 m6 m7 p2 p2"
+      .split(" ")
+      .map((code, i) => ({ id: `h${i}`, code }));
+    state.players[seat].flowers = [{ id: "f", code: "f2" }];
+    state.players[seat].melds = [];
+    state.drawnTileId = "h13";
+    state.players[(seat + 1) % 4].discards = [{ id: "d", code: "s1" }];
+    const actions = turnActions(state, seat);
+    expect(actions.canWin).toBe(true);
+    expect(actions.winScore!.faan).toBe(2);
+  });
+
+  it("changes the table minimum without disturbing the hand", () => {
+    const before = createGame({ seed: 33, config: { ...DEFAULT_RULES, minFaan: 3 } });
+    const after = setMinFaan(before, 0);
+    expect(after.config.minFaan).toBe(0);
+    expect(before.config.minFaan).toBe(3);
+    expect(after.players.map((p) => p.hand.length)).toEqual(
+      before.players.map((p) => p.hand.length),
+    );
+    expect(setMinFaan(after, 0)).toBe(after);
+  });
+});
+
+describe("playing without flowers", () => {
+  const FLOWER_KEYS = ["noBonus", "ownFlower", "ownSeason", "flowerSet", "seasonSet", "allEightBonus"];
+
+  it("deals from 136 tiles with no bonus tiles in them", () => {
+    const state = createGame({ seed: 4, config: { ...DEFAULT_RULES, flowers: false } });
+    expectTileConservation(state, 136);
+    expect(allTiles(state).some((t) => isFlower(t.code))).toBe(false);
+  });
+
+  it("plays 60 hands to completion with nothing scored for bonus tiles", () => {
+    for (let seed = 0; seed < 60; seed++) {
+      const game = createGame({ seed, config: { ...DEFAULT_RULES, flowers: false } });
+      for (const p of game.players) p.isHuman = false;
+      const { state } = autoPlayHand(game, createRng(seed * 31 + 7));
+      expect(state.phase, `seed ${seed} stalled`).toBe("handOver");
+      expectTileConservation(state, 136);
+      expect(state.players.every((p) => p.flowers.length === 0)).toBe(true);
+      const hit = state.result?.score?.patterns.find((p) => FLOWER_KEYS.includes(p.key));
+      expect(hit, `seed ${seed} scored ${hit?.key}`).toBeUndefined();
+    }
+  });
+
+  it("takes effect from the next deal", () => {
+    const before = createGame({ seed: 8 });
+    const after = setFlowers(before, false);
+    expect(after.config.flowers).toBe(false);
+    expect(before.config.flowers).toBe(true);
+    expectTileConservation(after, 144);
+    const next = nextHand({ ...after, phase: "handOver", result: { type: "washout", winner: null, from: null, score: null, payments: [0, 0, 0, 0], dealerKeeps: true } });
+    expectTileConservation(next, 136);
+  });
+});
+
+describe("ending the game early", () => {
+  it("abandons a hand in play unscored, and leaves the scores so far as the final ones", () => {
+    const played = autoPlayHand(allAiGame(3), createRng(3)).state;
+    const next = nextHand(played);
+    expect(next.phase).not.toBe("handOver");
+    const ended = endGame(next);
+    expect(ended.phase).toBe("gameOver");
+    expect(ended.result).toBeNull();
+    expect(ended.pendingClaims).toEqual([]);
+    expect(ended.scores).toEqual(played.scores);
+    expect(ended.history).toEqual(played.history);
+    // The engine refuses to play on.
+    expect(nextHand(ended).phase).toBe("gameOver");
+  });
+
+  it("keeps a settled hand's result, which is already in the scores", () => {
+    const played = autoPlayHand(allAiGame(4), createRng(4)).state;
+    expect(played.phase).toBe("handOver");
+    const ended = endGame(played);
+    expect(ended.phase).toBe("gameOver");
+    expect(ended.result).toEqual(played.result);
+    expect(endGame(ended)).toBe(ended);
+  });
+});
+
+describe("full hands", () => {
+  it("plays 150 random hands to completion without breaking an invariant", () => {
+    for (let seed = 0; seed < 150; seed++) {
+      const rng = createRng(seed * 7919 + 13);
+      const { state, steps } = autoPlayHand(allAiGame(seed), rng);
+      expect(state.phase, `seed ${seed} stalled`).toBe("handOver");
+      expect(steps).toBeLessThan(4000);
+      expectTileConservation(state);
+
+      for (const p of state.players) {
+        const target = 13 - 3 * p.melds.length;
+        expect([target, target + 1], `seat ${p.seat} hand size on seed ${seed}`).toContain(p.hand.length);
+        expect(p.hand.some((t) => isFlower(t.code))).toBe(false);
+        for (const m of p.melds) {
+          expect(m.tiles).toHaveLength(m.type === "kong" ? 4 : 3);
+          const codes = m.tiles.map((t) => t.code).sort(compareCodes);
+          if (m.type === "chow") {
+            expect(new Set(codes.map((c) => c[0])).size, `chow spans suits: ${codes}`).toBe(1);
+            expect(rankOf(codes[1]) - rankOf(codes[0]), `chow not consecutive: ${codes}`).toBe(1);
+            expect(rankOf(codes[2]) - rankOf(codes[1]), `chow not consecutive: ${codes}`).toBe(1);
+          } else {
+            expect(new Set(codes).size, `triplet not identical: ${codes}`).toBe(1);
+          }
+        }
+      }
+
+      // Every tile taken out of a pond left a note of where it lay and who took it.
+      const claims = state.players
+        .flatMap((p) => p.melds.filter((m) => m.claimedFrom !== undefined).map((m) => `${m.claimedFrom}>${p.seat}`))
+        .sort();
+      const notes = state.players.flatMap((p) => (p.taken ?? []).map((t) => `${p.seat}>${t.by}`)).sort();
+      for (const claim of claims) expect(notes, `seed ${seed}`).toContain(claim);
+      // A win off a discard leaves one note more: that tile went to a hand, not a set.
+      expect([0, 1]).toContain(notes.length - claims.length);
+      for (const p of state.players) {
+        for (const note of p.taken ?? []) expect(note.at).toBeLessThanOrEqual(p.discards.length);
+      }
+
+      const result = state.result!;
+      expect(result.payments.reduce((a, b) => a + b, 0)).toBe(0);
+      if (result.type === "win") {
+        expect(result.score!.faan).toBeGreaterThanOrEqual(state.config.minFaan);
+        expect(result.winner).not.toBeNull();
+      }
+      expect(state.scores.reduce((a, b) => a + b, 0)).toBe(0);
+    }
+  });
+
+  it("keeps the dealership when the dealer wins and passes it otherwise", () => {
+    for (let seed = 200; seed < 260; seed++) {
+      const rng = createRng(seed);
+      const { state } = autoPlayHand(allAiGame(seed), rng);
+      const before = state.dealer;
+      const next = nextHand(state);
+      if (next.phase === "gameOver") continue;
+      const keeps = state.result!.dealerKeeps;
+      expect(next.dealer).toBe(keeps ? before : ((before + 1) % 4) as Seat);
+    }
+  });
+
+  it("records every settled hand in the history", () => {
+    const rng = createRng(2025);
+    let state = allAiGame(808);
+    for (let i = 0; i < 3; i++) {
+      const played = autoPlayHand(state, rng);
+      state = played.state;
+      const record = state.history[state.history.length - 1];
+      expect(record.handNumber).toBe(state.handNumber);
+      expect(record.type).toBe(state.result!.type);
+      expect(record.payments).toEqual(state.result!.payments);
+      expect(record.scores).toEqual(state.scores);
+      if (record.type === "win") {
+        expect(record.faan).toBe(state.result!.score!.faan);
+        expect(record.winner).not.toBeNull();
+      } else {
+        expect(record.faan).toBeNull();
+      }
+      const next = nextHand(state);
+      if (next.phase === "gameOver") break;
+      state = next;
+      for (const p of state.players) p.isHuman = false;
+      // History survives the deal of the next hand.
+      expect(state.history).toHaveLength(i + 1);
+    }
+    expect(state.history.length).toBeGreaterThan(0);
+    // Cumulative scores in the history stay zero-sum.
+    for (const record of state.history) {
+      expect(record.scores.reduce((a, b) => a + b, 0)).toBe(0);
+    }
+  });
+
+  it("completes a whole East round", () => {
+    const rng = createRng(2024);
+    let state = allAiGame(4242);
+    let hands = 0;
+    while (state.phase !== "gameOver" && hands < 200) {
+      const played = autoPlayHand(state, rng);
+      expect(played.state.phase).toBe("handOver");
+      state = nextHand(played.state);
+      for (const p of state.players) p.isHuman = false;
+      hands += 1;
+    }
+    expect(state.phase).toBe("gameOver");
+    expect(state.dealership).toBe(4);
+    expect(state.scores.reduce((a, b) => a + b, 0)).toBe(0);
+  });
+
+  /** Plays every hand of a game of `rounds` wind rounds, all four seats by the computer. */
+  function playGame(rounds: number, seed: number): GameState {
+    const rng = createRng(seed);
+    let state = createGame({ seed, config: { ...DEFAULT_RULES, rounds } });
+    for (const p of state.players) p.isHuman = false;
+    for (let hands = 0; state.phase !== "gameOver" && hands < 400; hands++) {
+      state = nextHand(autoPlayHand(state, rng).state);
+      for (const p of state.players) p.isHuman = false;
+    }
+    return state;
+  }
+
+  it("plays the East round and then the South round when the game runs two", () => {
+    const state = playGame(2, 777);
+    expect(state.phase).toBe("gameOver");
+    const winds = [...new Set(state.history.map((h) => h.roundWind))];
+    expect(winds).toEqual(["we", "ws"]);
+    // Each round starts back with the first dealer.
+    const firstSouth = state.history.find((h) => h.roundWind === "ws")!;
+    expect(firstSouth.dealer).toBe(0);
+    expect(state.scores.reduce((a, b) => a + b, 0)).toBe(0);
+  });
+
+  it("plays every wind when the game runs four rounds", () => {
+    const state = playGame(4, 4321);
+    expect(state.phase).toBe("gameOver");
+    expect([...new Set(state.history.map((h) => h.roundWind))]).toEqual(["we", "ws", "ww", "wn"]);
+  });
+
+  it("ends a game in the round it is in when it is shortened", () => {
+    // Play into the South round of a two-round game, then cut it to one round.
+    const rng = createRng(777);
+    let state = createGame({ seed: 777, config: { ...DEFAULT_RULES, rounds: 2 } });
+    for (const p of state.players) p.isHuman = false;
+    while (state.roundWind !== "ws") {
+      state = nextHand(autoPlayHand(state, rng).state);
+      for (const p of state.players) p.isHuman = false;
+    }
+    state = setRounds(state, 1);
+    expect(state.config.rounds).toBe(1);
+    while (state.phase !== "gameOver") {
+      state = nextHand(autoPlayHand(state, rng).state);
+      for (const p of state.players) p.isHuman = false;
+    }
+    expect(state.roundWind).toBe("ws");
+  });
+
+  it("treats a table saved before game lengths existed as one round", () => {
+    const old = createGame({ seed: 5 });
+    const { rounds: _gone, ...config } = old.config;
+    const state = { ...old, config: config as typeof old.config };
+    expect(setRounds(state, 1)).toBe(state);
+  });
+});
