@@ -9,6 +9,9 @@ import { SeatingDiagram } from "./SeatingDiagram";
 import { SetQuiz } from "./SetQuiz";
 import { TileExplorer } from "./TileExplorer";
 import { WaitQuiz } from "./WaitQuiz";
+import { DeclareQuiz, SpeedValueQuiz } from "./PlanningQuizzes";
+import { CollectQuiz, CountingDrill, DefenseQuiz } from "./ReadingQuizzes";
+import { MINIMUM_MEASURED } from "@/tutorial/planning";
 
 function Tiles() {
   return (
@@ -368,19 +371,189 @@ function Strategy() {
         </p>
         <h3>Defend late in the hand</h3>
         <p>
-          Tiles a player has already discarded are safe against them. Someone with three sets of Bamboo on the table is
-          probably after a flush — do not feed them Bamboo. And under <strong>liability</strong> (包), the player who
-          discards the tile that gives someone their third dragon set, or their fourth set of any kind, pays that
-          player&apos;s whole self-drawn win alone.
+          Tiles a player has thrown are less likely to be what they want — but not safe: Hong Kong rules let a player
+          win on a tile they threw earlier. Someone with three sets of Bamboo on the table is probably after a flush —
+          do not feed them Bamboo. And under <strong>liability</strong> (包), the player who discards the tile that
+          gives someone their third dragon set, or their fourth set of any kind, pays that player&apos;s whole
+          self-drawn win alone. <Link href="/learn/defense">Defense</Link> goes further.
         </p>
       </div>
       <h2>Which tile goes?</h2>
       <DiscardQuiz />
       <div className="callout">
+        <span className="callout__title">You can play now</span>
+        <p>
+          That is the whole game. Play <Link href="/example">the example hand</Link> with a coach, or read on: the last
+          three lessons are about playing it well — <Link href="/learn/playing-for-faan">playing for faan</Link>,{" "}
+          <Link href="/learn/reading-the-table">reading the table</Link> and <Link href="/learn/defense">defense</Link>.
+        </p>
+      </div>
+    </>
+  );
+}
+
+function PlayingForFaan() {
+  return (
+    <>
+      <div className="prose">
+        <p>
+          A finished hand is not enough: it has to reach the table&apos;s <strong>minimum</strong> before you may declare
+          it. The app starts at 1 faan; the Hong Kong standard is 3. The minimum changes the whole game — this is what it
+          did to the game&apos;s own computer players, all four seats, 300 hands at each setting:
+        </p>
+      </div>
+      <div className="table-scroll">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th className="num">Minimum</th>
+              <th className="num">Hands won</th>
+              <th className="num">Washed out</th>
+              <th className="num">Average faan</th>
+            </tr>
+          </thead>
+          <tbody>
+            {MINIMUM_MEASURED.map((m) => (
+              <tr key={m.minFaan}>
+                <td className="num">{m.minFaan} faan</td>
+                <td className="num">{m.won}%</td>
+                <td className="num">{m.washedOut}%</td>
+                <td className="num">{m.avgFaan}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="muted small">
+        Source: the Hong Kong Mahjong game&apos;s README, Normal computer players, October 2026.
+      </p>
+      <div className="prose">
+        <h3>Routes</h3>
+        <p>
+          The computer plays for a <strong>route</strong>: any finished hand, a flush in one suit, all triplets, or all
+          runs. Some faan come with every route — a concealed hand, a dragon or wind triplet you already hold, your own
+          flower, or no flowers at all. The route adds the rest: 3 for a half flush or all triplets, 1 for all runs.
+        </p>
+        <p>
+          The rule of thumb: <strong>find the quickest route that reaches the minimum, then play fast.</strong> The
+          game&apos;s Hard computer player weighs every route by what it would pay; it beats Normal by only a little,
+          because at these rules the quickest hand worth declaring is usually the richest one too.
+        </p>
+      </div>
+      <h2>Speed or value?</h2>
+      <SpeedValueQuiz />
+      <h2>Which winning tiles count?</h2>
+      <div className="prose">
+        <p>
+          Being ready is not the same as being able to win. When a hand waits on two tiles, each can finish it a
+          different way and score differently — and a self-draw adds a faan a discard does not. In this app, though,
+          self-draw <em>replaces</em> the concealed-hand faan rather than adding to it, so only a hand that has claimed
+          a set gains from drawing its own tile.
+        </p>
+      </div>
+      <DeclareQuiz />
+      <div className="callout">
+        <span className="callout__title">On the practice table</span>
+        <p>
+          With the coach on, the <Link href="/practice">practice table</Link> shows your routes as you play. Pick a
+          tile and the table shows what it would leave.
+        </p>
+      </div>
+    </>
+  );
+}
+
+function ReadingTheTable() {
+  return (
+    <>
+      <div className="prose">
+        <p>
+          There are four of every tile. Everything you can see — your hand, every discard, every set on the table —
+          tells you how many are left for you to draw, and what the others cannot be holding.
+        </p>
+        <ul>
+          <li>
+            <strong>Count your outs.</strong> Waiting on 3 or 6 Bamboo with three 6s already in the ponds leaves five
+            tiles to win on, not eight.
+          </li>
+          <li>
+            <strong>Count dead tiles.</strong> With three of a tile in sight, nobody can pung it; only a pair wait (or
+            Thirteen Orphans) can use the last one.
+          </li>
+        </ul>
+      </div>
+      <h2>Count the tile</h2>
+      <CountingDrill />
+      <h2>What are they building?</h2>
+      <div className="prose">
+        <p>The order of someone&apos;s discards is a story. A few patterns to read:</p>
+        <ul>
+          <li>
+            <strong>A suit that never appears</strong> in their discards, while others go out in the middle of runs:
+            a flush in that suit — doubly so if their claimed sets are in it.
+          </li>
+          <li>
+            <strong>Middle tiles thrown, pairs kept</strong>, triplets claimed: all triplets. Any pair you hold may be
+            the one they pung.
+          </li>
+          <li>
+            <strong>Honors and terminals first</strong>, chows claimed, every suit in play: a quick, cheap hand. Less
+            dangerous to pay, but likely to finish soon.
+          </li>
+          <li>
+            <strong>Dragons or winds claimed</strong>: count the faan they already have. Two dragon triplets is half
+            way to a limit hand.
+          </li>
+        </ul>
+      </div>
+      <CollectQuiz />
+    </>
+  );
+}
+
+function Defense() {
+  return (
+    <>
+      <div className="prose">
+        <p>
+          Most of the time you play your own hand. Defend when someone else is clearly close to a big one: three or
+          four sets on the table, a flush showing, a dragon triplet or two — and especially late, when the wall is
+          short and your own hand is far from ready.
+        </p>
+        <h3>Safer tiles</h3>
+        <ul>
+          <li>
+            <strong>What they threw recently.</strong> A tile someone discarded after their hand settled is unlikely to
+            be their wait. But <strong>no tile is safe just because they threw it once</strong>: Hong Kong rules have
+            no <em>furiten</em>, so a player may win on a tile they discarded earlier.
+          </li>
+          <li>
+            <strong>Dead honors.</strong> An honor with three copies in sight can only win as somebody&apos;s pair (or
+            for Thirteen Orphans).
+          </li>
+          <li>
+            <strong>Out of their suit.</strong> Against a flush, every other suit is safe from that player.
+          </li>
+        </ul>
+        <h3>The tile that makes you pay for everything</h3>
+        <p>
+          Under <strong>liability</strong> (包), if you throw the tile that gives a player their third dragon set, or
+          their fourth set of any kind, and they go on to win by self-draw, you pay their whole hand alone — all three
+          shares. Against two dragon triplets on the table, the third dragon stays in your hand.
+        </p>
+        <h3>Folding</h3>
+        <p>
+          When your hand is far from ready and theirs is big, break your own hand to throw only safe tiles. A washout
+          costs you nothing; feeding a limit hand costs 128 points.
+        </p>
+      </div>
+      <h2>Which tile?</h2>
+      <DefenseQuiz />
+      <div className="callout">
         <span className="callout__title">Ready to play</span>
         <p>
-          That is the whole game. Play <Link href="/example">the example hand</Link> with a coach, then{" "}
-          <Link href="/practice">practice</Link> against the computer.
+          Play <Link href="/example">the example hand</Link> with a coach, then <Link href="/practice">practice</Link>{" "}
+          against the computer — after each hand the practice table reviews your decisions.
         </p>
       </div>
     </>
@@ -395,4 +568,7 @@ export const LESSON_CONTENT: Record<string, () => ReactNode> = {
   claims: Claims,
   ready: Ready,
   strategy: Strategy,
+  "playing-for-faan": PlayingForFaan,
+  "reading-the-table": ReadingTheTable,
+  defense: Defense,
 };

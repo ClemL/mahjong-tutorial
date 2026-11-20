@@ -3,6 +3,7 @@ import Link from "next/link";
 import { DEFAULT_FAAN, DEFAULT_RULES, halfShare } from "@/game/rules";
 import { faanValue } from "@/game/scoring";
 import { PATTERNS } from "@/tutorial/scoring";
+import { FaanDrill } from "@/components/scoring/FaanDrill";
 import { FaanQuiz } from "@/components/scoring/FaanQuiz";
 import { ScoringLab } from "@/components/scoring/ScoringLab";
 import { MinimumChoices, PatternTier, PayoutTable, ReadingsDemo } from "@/components/scoring/ScoringSections";
@@ -22,6 +23,7 @@ const SECTIONS = [
   ["limit", "Limit hands"],
   ["fine-print", "The fine print"],
   ["quiz", "Test yourself"],
+  ["drill", "Faan drill"],
   ["reference", "Full table"],
 ] as const;
 
@@ -162,6 +164,17 @@ export default function ScoringPage() {
       <section id="quiz">
         <h2>Test yourself</h2>
         <FaanQuiz />
+      </section>
+
+      <section id="drill">
+        <h2>Faan drill</h2>
+        <div className="prose">
+          <p>
+            Ten random winning hands, thirty seconds each. Count the faan; a hand you miss comes back two hands later
+            until you get it. Counting fast is what lets you judge, mid-hand, whether a route is worth playing for.
+          </p>
+        </div>
+        <FaanDrill />
       </section>
 
       <section id="reference">

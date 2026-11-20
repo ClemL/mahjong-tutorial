@@ -3,7 +3,7 @@ import { noErrors, watchErrors } from "./helpers";
 
 const PAGES = [
   ["/", /Learn mahjong, one tile at a time/],
-  ["/learn", /Seven short lessons/],
+  ["/learn", /Ten short lessons/],
   ["/learn/tiles", /The tiles/],
   ["/learn/sets", /Sets and the pair/],
   ["/learn/winning-hand", /A winning hand/],
@@ -11,6 +11,9 @@ const PAGES = [
   ["/learn/claims", /Claiming discards/],
   ["/learn/ready", /Being ready/],
   ["/learn/strategy", /First strategy/],
+  ["/learn/playing-for-faan", /Playing for faan/],
+  ["/learn/reading-the-table", /Reading the table/],
+  ["/learn/defense", /Defense/],
   ["/example", /Play your first hand/],
   ["/practice", /Play against the computer/],
   ["/scoring", /How a hand is scored/],

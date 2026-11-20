@@ -10,10 +10,10 @@ Vercel.
 
 | Section | What it does |
 | --- | --- |
-| **Learn** (`/learn`) | Seven lessons — tiles, sets, the winning hand, seats and turns, claims, being ready, first strategy — each with an exercise: a tile explorer, a set quiz, a hand to split into sets, a claims quiz, a waits quiz, a discard quiz. |
+| **Learn** (`/learn`) | Ten lessons — tiles, sets, the winning hand, seats and turns, claims, being ready, first strategy, playing for faan, reading the table, defense — each with an exercise: a tile explorer, a set quiz, a hand to split into sets, a claims quiz, a waits quiz, a discard quiz, speed-or-value and declarable-tile puzzles, a tile-counting drill on real positions, "what are they collecting?", and a safe-tile quiz. |
 | **Example hand** (`/example`) | One hand on the real engine. The other three seats follow a script; a coach asks for each move (a discard, a chow, a pung, a claim to refuse, a self-drawn win), refuses a wrong one with a reason, and explains the right one. |
-| **Practice** (`/practice`) | Whole hands against the game's own Easy, Normal or Hard computer players, with a coach that counts steps from ready, suggests a discard and lists your waits. |
-| **Scoring** (`/scoring`) | The payout table, who pays, every faan pattern with an example hand, a scoring lab, reading a hand two ways, the fine print and a faan quiz. |
+| **Practice** (`/practice`) | Whole hands against the game's own Easy, Normal or Hard computer players, with a coach that counts steps from ready, suggests a discard, lists your waits and shows the routes to a win (pick a tile to see what it leaves). After each hand, a review sets every decision beside the Normal player's and shows the ones that cost something. |
+| **Scoring** (`/scoring`) | The payout table, who pays, every faan pattern with an example hand, a scoring lab, reading a hand two ways, the fine print, a faan quiz and a timed faan drill on random hands, where a missed hand comes back two hands later. |
 | **Table players** (`/table-players`) | For people who already play at a real table: how the app's tablet-and-phones setup, strict claim order and house rules differ. |
 | **History** (`/history`) | A sourced timeline from Qing dynasty China to today, and the main variants. |
 
@@ -33,7 +33,12 @@ hand where the engine can say it:
 * every example hand on the scoring page is scored live by `scoreHand`, and a
   test asserts each one scores the pattern it illustrates;
 * the example hand is a real deal on the engine, and a test plays the whole
-  script and checks the final 3 faan and the payments.
+  script and checks the final 3 faan and the payments;
+* routes, the speed-or-value answers and the practice review come from the
+  game's own route planner (`plan.ts`) and Normal computer player;
+* the defense and opponent-reading puzzles are scored against the hidden hands,
+  and the counting drill's answer is checked against the tiles really left in
+  the wall and the other hands.
 
 To pick up a rule change from the game:
 
