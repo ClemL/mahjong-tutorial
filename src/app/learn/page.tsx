@@ -5,7 +5,7 @@ import { TileRow } from "@/components/Tiles";
 
 export const metadata: Metadata = {
   title: "Learn to play",
-  description: "Seven short lessons on Hong Kong mahjong, each with something to try.",
+  description: "Ten short lessons on Hong Kong mahjong, each with something to try.",
 };
 
 export default function LearnIndex() {
@@ -13,9 +13,9 @@ export default function LearnIndex() {
     <>
       <header className="page-head">
         <p className="eyebrow">Learn to play</p>
-        <h1>Seven short lessons</h1>
+        <h1>Ten short lessons</h1>
         <p className="lede">
-          From the tiles to your first strategy, about twenty minutes in all. Each lesson ends with something to try —
+          From the tiles to defense, about forty minutes in all. Each lesson ends with something to try —
           and every answer is checked by the same rules engine the game plays with.
         </p>
       </header>

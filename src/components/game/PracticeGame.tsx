@@ -24,6 +24,10 @@ import { Choice } from "@/components/Choice";
 import { TileFace } from "@/components/TileView";
 import { adviseClaim, adviseDiscard, stepsText, turnShanten, waitsFor, standingShanten } from "@/tutorial/coach";
 import { HandResult } from "./HandResult";
+import { HandReview } from "./HandReview";
+import { RoutesTable } from "@/components/lessons/RoutesTable";
+import type { Decision } from "@/tutorial/review";
+import { routesFor } from "@/tutorial/routes";
 import { PlayLog } from "./PlayLog";
 import { TableView } from "./TableView";
 import { PACE_MS } from "./pace";
@@ -73,6 +77,8 @@ export function PracticeGame() {
   const [game, setGame] = useState<GameState | null>(null);
   const [armed, setArmed] = useState<string | null>(null);
   const [showHint, setShowHint] = useState(false);
+  // Every discard and call you make this hand, with the table as it stood, for the review at the end.
+  const [decisions, setDecisions] = useState<Decision[]>([]);
   const rng = useRef(createRng(1));
 
   // Dealt on the client only: a seeded deal on the server would be the same hand for everyone.
@@ -112,17 +118,31 @@ export function PracticeGame() {
     setArmed(null);
   };
 
+  const throwTile = (tileId: string) => {
+    setDecisions((d) => [...d, { kind: "discard", before: game, tileId }]);
+    act(discard(game, YOU, tileId));
+  };
+
+  const call = (optionId: string | null) => {
+    setDecisions((d) => [...d, { kind: "claim", before: game, optionId }]);
+    act(answerClaim(game, YOU, optionId));
+  };
+
   const onTile = (tile: Tile) => {
     if (waiting !== "turn") return;
-    if (armed === tile.id) act(discard(game, YOU, tile.id));
+    if (armed === tile.id) throwTile(tile.id);
     else setArmed(tile.id);
   };
 
   const newGame = () => {
     const seed = Math.floor(Math.random() * 0xffffffff);
     rng.current = createRng(seed);
+    setDecisions([]);
     act(createGame({ seed, config: { ...DEFAULT_RULES, minFaan: Number(minFaan) } }));
   };
+
+  const routeRows = coach && waiting !== "done" ? routesFor(game, YOU, waiting === "turn" ? armed : null) : null;
+  const armedName = armed ? game.players[YOU]!.hand.find((t) => t.id === armed)?.code : null;
 
   const turn = waiting === "turn" ? turnActions(game, YOU) : null;
   const armedTile = armed ? game.players[YOU]!.hand.find((t) => t.id === armed) : null;
@@ -151,7 +171,7 @@ export function PracticeGame() {
           type="button"
           className="btn btn--lg"
           disabled={!armedTile}
-          onClick={() => armedTile && act(discard(game, YOU, armedTile.id))}
+          onClick={() => armedTile && throwTile(armedTile.id)}
         >
           {armedTile ? `Discard ${tileName(armedTile.code)}` : "Pick a tile to discard"}
         </button>
@@ -163,12 +183,12 @@ export function PracticeGame() {
             key={o.id}
             type="button"
             className={o.type === "win" ? "btn btn--win btn--lg" : "btn btn--primary btn--lg"}
-            onClick={() => act(answerClaim(game, YOU, o.id))}
+            onClick={() => call(o.id)}
           >
             {claimLabel(o)}
           </button>
         ))}
-        <button type="button" className="btn btn--lg" onClick={() => act(answerClaim(game, YOU, null))}>
+        <button type="button" className="btn btn--lg" onClick={() => call(null)}>
           Pass
         </button>
       </>
@@ -199,7 +219,14 @@ export function PracticeGame() {
             </p>
             <div className="actions">
               {game.phase === "handOver" ? (
-                <button type="button" className="btn btn--primary" onClick={() => act(nextHand(game))}>
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  onClick={() => {
+                    setDecisions([]);
+                    act(nextHand(game));
+                  }}
+                >
                   Next hand
                 </button>
               ) : null}
@@ -257,8 +284,26 @@ export function PracticeGame() {
                 ))}
               </div>
             ) : null}
+            {routeRows ? (
+              <details className="coach__routes" open>
+                <summary>Routes to a win</summary>
+                <RoutesTable
+                  compact
+                  rows={routeRows}
+                  minFaan={game.config.minFaan}
+                  caption={
+                    waiting === "turn"
+                      ? armedName
+                        ? `If you throw the ${tileName(armedName)}`
+                        : "Before you throw — pick a tile to see what it leaves"
+                      : "Your hand as it stands"
+                  }
+                />
+              </details>
+            ) : null}
           </div>
         ) : null}
+        {waiting === "done" ? <HandReview decisions={decisions} /> : null}
       </aside>
       <div className="game__extra">
         <div className="panel-block game__settings">

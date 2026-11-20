@@ -49,6 +49,24 @@ export const LESSONS: LessonMeta[] = [
     summary: "What to throw, what to keep, and when to say no to a claim.",
     tiles: ["wn", "m1", "p5"],
   },
+  {
+    slug: "playing-for-faan",
+    title: "Playing for faan",
+    summary: "Speed against value: keep a hand worth declaring, and know which winning tiles count.",
+    tiles: ["p2", "p3", "p4", "wn", "wn", "wn"],
+  },
+  {
+    slug: "reading-the-table",
+    title: "Reading the table",
+    summary: "Count what is left, and work out what each opponent is building.",
+    tiles: ["s5", "s5", "s5", "back", "back"],
+  },
+  {
+    slug: "defense",
+    title: "Defense",
+    summary: "Which tiles are safe late in a hand — and the one that makes you pay for someone else's win.",
+    tiles: ["dr", "dg", "dw"],
+  },
 ];
 
 export function lessonIndex(slug: string): number {
